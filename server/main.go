@@ -304,10 +304,15 @@ func finalizeHandler(w http.ResponseWriter, r *http.Request) {
 		fw.Write(f.Data)
 	}
 
-	// run.bat と pyrunner.py をプロジェクトフォルダ内に同梱
+	// run.bat / run.sh と pyrunner.py をプロジェクトフォルダ内に同梱
 	if runBat := buildRunBat(); runBat != "" {
 		if fw, err := zw.Create(folderName + "/run.bat"); err == nil {
 			fw.Write([]byte(runBat))
+		}
+	}
+	if runSh := buildRunSh(); runSh != "" {
+		if fw, err := zw.Create(folderName + "/run.sh"); err == nil {
+			fw.Write([]byte(runSh))
 		}
 	}
 	if fw, err := zw.Create(folderName + "/pyrunner.py"); err == nil {
