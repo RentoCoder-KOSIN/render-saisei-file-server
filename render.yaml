@@ -1,0 +1,37 @@
+services:
+  # ─── task-server (Python/FastAPI) ─────────────────────────────
+  - type: web
+    name: saisei-task-server
+    runtime: docker
+    dockerfilePath: ./task-server/Dockerfile
+    dockerContext: ./task-server
+    plan: free
+    envVars:
+      - key: DB_PATH
+        value: /data/users.db
+    disk:
+      name: task-db
+      mountPath: /data
+      sizeGB: 1
+
+  # ─── file-server (Go) ─────────────────────────────────────────
+  - type: web
+    name: saisei-file-server
+    runtime: docker
+    dockerfilePath: ./server/Dockerfile
+    dockerContext: ./server
+    plan: free
+    envVars:
+      - key: PORT
+        value: 4450
+      - key: TZ
+        value: Asia/Tokyo
+      - key: RUN_TIMEOUT_SEC
+        value: "60"
+      - key: TASK_SERVER_URL
+        # デプロイ後に saisei-task-server の URL に更新してください
+        value: https://saisei-task-server.onrender.com
+    disk:
+      name: file-uploads
+      mountPath: /app/uploads
+      sizeGB: 5
