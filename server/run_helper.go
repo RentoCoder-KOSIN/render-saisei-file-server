@@ -108,8 +108,8 @@ func detectMainScript(files []struct{ Path string; Data []byte }, folderName str
 }
 
 // buildProjectToml は project.toml のテンプレート文字列を生成する。
-func buildProjectToml(projectName, script string) string {
-	return `[project]
+func buildProjectToml(projectName, script string, hasReq bool, packages []string) string {
+	toml := `[project]
 name    = "` + projectName + `"
 # version = "1.0"
 # author  = "名前"
@@ -117,9 +117,101 @@ name    = "` + projectName + `"
 [run]
 script = "` + script + `"
 # args = []
-
+`
+	if hasReq {
+		toml += `
+[dependencies]
+file = "requirements.txt"
+`
+	} else if len(packages) > 0 {
+		quoted := make([]string, len(packages))
+		for i, p := range packages {
+			quoted[i] = `"` + p + `"`
+		}
+		toml += `
+[dependencies]
+packages = [` + strings.Join(quoted, ", ") + `]
+`
+	} else {
+		toml += `
 # 外部パッケージが必要な場合は以下のコメントを外して記述
 # [dependencies]
 # packages = ["requests", "numpy"]
 `
+	}
+	return toml
+}
+
+// 標準ライブラリモジュール一覧（主要なもの）
+var stdlibModules = map[string]bool{
+	"os": true, "sys": true, "re": true, "math": true, "time": true,
+	"datetime": true, "json": true, "random": true, "string": true,
+	"collections": true, "itertools": true, "functools": true,
+	"pathlib": true, "io": true, "abc": true, "copy": true,
+	"enum": true, "typing": true, "dataclasses": true, "struct": true,
+	"hashlib": true, "hmac": true, "secrets": true, "base64": true,
+	"urllib": true, "http": true, "socket": true, "ssl": true,
+	"threading": true, "multiprocessing": true, "subprocess": true,
+	"logging": true, "unittest": true, "argparse": true, "csv": true,
+	"sqlite3": true, "xml": true, "html": true, "email": true,
+	"tempfile": true, "shutil": true, "glob": true, "fnmatch": true,
+	"traceback": true, "inspect": true, "ast": true, "dis": true,
+	"gc": true, "weakref": true, "contextlib": true, "warnings": true,
+	"textwrap": true, "pprint": true, "reprlib": true, "platform": true,
+	"signal": true, "queue": true, "heapq": true, "bisect": true,
+	"array": true, "decimal": true, "fractions": true, "statistics": true,
+	"tomllib": true, "tomli": true, "zipfile": true, "tarfile": true,
+	"gzip": true, "bz2": true, "lzma": true, "zlib": true,
+	"pickle": true, "shelve": true, "configparser": true,
+	"tkinter": true, "turtle": true, "curses": true,
+	"__future__": true, "builtins": true, "types": true,
+}
+
+// detectDependencies はファイル一覧から外部パッケージを検出する。
+// requirements.txt があればそれを優先し、なければ .py ファイルを解析する。
+func detectDependencies(files []struct{ Path string; Data []byte }, folderName string) (hasReq bool, packages []string) {
+	// requirements.txt チェック
+	for _, f := range files {
+		name := f.Path
+		if idx := strings.LastIndex(name, "/"); idx >= 0 {
+			name = name[idx+1:]
+		}
+		if name == "requirements.txt" {
+			return true, nil
+		}
+	}
+
+	// .py ファイルを解析して import 文から外部パッケージを検出
+	seen := map[string]bool{}
+	for _, f := range files {
+		if !strings.HasSuffix(f.Path, ".py") {
+			continue
+		}
+		for _, line := range strings.Split(string(f.Data), "\n") {
+			line = strings.TrimSpace(line)
+			var mod string
+			if strings.HasPrefix(line, "import ") {
+				// import numpy, pandas など
+				parts := strings.Split(strings.TrimPrefix(line, "import "), ",")
+				mod = strings.TrimSpace(strings.Split(parts[0], " ")[0])
+			} else if strings.HasPrefix(line, "from ") {
+				// from numpy import ...
+				parts := strings.Fields(line)
+				if len(parts) >= 2 {
+					mod = strings.Split(parts[1], ".")[0]
+				}
+			}
+			if mod == "" || strings.HasPrefix(mod, ".") || strings.HasPrefix(mod, "_") {
+				continue
+			}
+			if stdlibModules[mod] {
+				continue
+			}
+			if !seen[mod] {
+				seen[mod] = true
+				packages = append(packages, mod)
+			}
+		}
+	}
+	return false, packages
 }

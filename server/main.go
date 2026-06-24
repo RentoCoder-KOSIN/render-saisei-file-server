@@ -314,7 +314,8 @@ func finalizeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if !hasProjectToml {
 		script := detectMainScript(files, folderName)
-		toml := buildProjectToml(folderName, script)
+		hasReq, packages := detectDependencies(files, folderName)
+		toml := buildProjectToml(folderName, script, hasReq, packages)
 		if fw, err := zw.Create(folderName + "/project.toml"); err == nil {
 			fw.Write([]byte(toml))
 		}
