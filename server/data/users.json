@@ -4,5 +4,11 @@
     "salt": "fab160947cb908570d969d4c7e6605cb",
     "hash": "922243e639f6c63a16b0a1a26dde2d93fd41259ab56ae25fcec80aea354cc11b",
     "role": "teacher"
+  },
+  {
+    "username": "user",
+    "salt": "1b40af457b8360c699cf1e15d7b0c59d",
+    "hash": "4583dc6af6a56059957a2b914f012c96e90bf24f4499987e935848534b6dbf7b",
+    "role": "student"
   }
 ]
