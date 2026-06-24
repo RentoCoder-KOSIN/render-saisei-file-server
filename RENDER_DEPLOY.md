@@ -41,6 +41,8 @@ Blueprint 適用後:
 ### 4. 動作確認
 
 - `https://saisei-file-server.onrender.com` にアクセス
+- デフォルトアカウント: `admin` / `admin123`
+
 ---
 
 ## 注意事項
