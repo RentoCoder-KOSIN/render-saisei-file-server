@@ -1,5 +1,8 @@
 package main
 
+import "strings"
+
+
 // buildRunBat はプロジェクトフォルダ内に同梱する run.bat の内容を生成する。
 // run.bat は project.toml と同じ階層に置かれるので、カレントディレクトリ = プロジェクトフォルダ。
 func buildRunBat() string {
@@ -75,5 +78,48 @@ $PYTHON pyrunner.py .
 
 echo ""
 read -p "Press Enter to continue..."
+`
+}
+
+// detectMainScript はアップロードされたファイル一覧から実行スクリプトを探す。
+// main.py があればそれを優先し、なければ最初に見つかった .py ファイルを返す。
+func detectMainScript(files []struct{ Path string; Data []byte }, folderName string) string {
+	first := ""
+	for _, f := range files {
+		if !strings.HasSuffix(f.Path, ".py") {
+			continue
+		}
+		name := f.Path
+		// folderName/xxx.py の形式ならファイル名だけ取り出す
+		if idx := strings.LastIndex(name, "/"); idx >= 0 {
+			name = name[idx+1:]
+		}
+		if name == "main.py" {
+			return "main.py"
+		}
+		if first == "" {
+			first = name
+		}
+	}
+	if first != "" {
+		return first
+	}
+	return "main.py" // fallback
+}
+
+// buildProjectToml は project.toml のテンプレート文字列を生成する。
+func buildProjectToml(projectName, script string) string {
+	return `[project]
+name    = "` + projectName + `"
+# version = "1.0"
+# author  = "名前"
+
+[run]
+script = "` + script + `"
+# args = []
+
+# 外部パッケージが必要な場合は以下のコメントを外して記述
+# [dependencies]
+# packages = ["requests", "numpy"]
 `
 }

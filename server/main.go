@@ -304,6 +304,22 @@ func finalizeHandler(w http.ResponseWriter, r *http.Request) {
 		fw.Write(f.Data)
 	}
 
+	// project.toml が未提出なら自動生成して同梱
+	hasProjectToml := false
+	for _, f := range files {
+		if strings.HasSuffix(f.Path, "project.toml") {
+			hasProjectToml = true
+			break
+		}
+	}
+	if !hasProjectToml {
+		script := detectMainScript(files, folderName)
+		toml := buildProjectToml(folderName, script)
+		if fw, err := zw.Create(folderName + "/project.toml"); err == nil {
+			fw.Write([]byte(toml))
+		}
+	}
+
 	// run.bat / run.sh と pyrunner.py をプロジェクトフォルダ内に同梱
 	if runBat := buildRunBat(); runBat != "" {
 		if fw, err := zw.Create(folderName + "/run.bat"); err == nil {
