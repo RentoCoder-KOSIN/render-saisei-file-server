@@ -271,19 +271,14 @@ func finalizeHandler(w http.ResponseWriter, r *http.Request) {
 		subDir = "free"
 	}
 
-	userDir := filepath.Join("uploads", username, subDir)
-	if err := os.MkdirAll(userDir, 0755); err != nil {
-		http.Error(w, "ディレクトリの作成に失敗しました", http.StatusInternalServerError)
-		return
-	}
+	subDirPath := username + "/" + subDir
 
 	// 同じ課題の古い提出zipを削除（ディスク節約）
 	if taskID != "" {
-		if oldFiles, err := filepath.Glob(filepath.Join(userDir, "*.zip")); err == nil {
-			for _, old := range oldFiles {
-				oldName := username + "/" + subDir + "/" + filepath.Base(old)
-				os.Remove(old)
-				deleteUpload(oldName)
+		for _, u := range listUploads() {
+			if strings.HasPrefix(u.Filename, subDirPath+"/") {
+				storageDelete(u.Filename)
+				deleteUpload(u.Filename)
 			}
 		}
 	}
@@ -297,14 +292,10 @@ func finalizeHandler(w http.ResponseWriter, r *http.Request) {
 		return loc
 	}()).Format("20060102_150405")
 	zipFilename := folderName + "_" + timestamp + ".zip"
-	zipPath := filepath.Join(userDir, zipFilename)
-	zipFile, err := os.Create(zipPath)
-	if err != nil {
-		http.Error(w, "zipの作成に失敗しました", http.StatusInternalServerError)
-		return
-	}
 
-	zw := zip.NewWriter(zipFile)
+	// メモリ上でzipを作成
+	var zipBuf bytes.Buffer
+	zw := zip.NewWriter(&zipBuf)
 	for _, f := range files {
 		fw, err := zw.Create(f.Path)
 		if err != nil {
@@ -322,11 +313,13 @@ func finalizeHandler(w http.ResponseWriter, r *http.Request) {
 	if fw, err := zw.Create(folderName + "/pyrunner.py"); err == nil {
 		fw.Write(pyrunnerPy)
 	}
-
 	zw.Close()
-	zipFile.Close()
 
-	storedName := username + "/" + subDir + "/" + zipFilename
+	storedName := subDirPath + "/" + zipFilename
+	if err := storagePut(storedName, zipBuf.Bytes()); err != nil {
+		http.Error(w, "保存に失敗しました: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	insertUpload(storedName, username)
 
 	if taskID != "" {
@@ -379,13 +372,8 @@ func deleteHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "ファイル名が指定されていません", http.StatusBadRequest)
 		return
 	}
-	fullPath := filepath.Join("uploads", filepath.Clean("/"+name))
-	if !strings.HasPrefix(fullPath, filepath.Clean("uploads")+string(os.PathSeparator)) {
-		http.Error(w, "不正なパスです", http.StatusBadRequest)
-		return
-	}
-	if err := os.Remove(fullPath); err != nil {
-		http.Error(w, "削除に失敗しました", http.StatusInternalServerError)
+	if err := storageDelete(name); err != nil {
+		http.Error(w, "削除に失敗しました: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	deleteUpload(name)
@@ -398,14 +386,14 @@ func downloadHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "ファイル名が指定されていません", http.StatusBadRequest)
 		return
 	}
-	fullPath := filepath.Join("uploads", filepath.Clean("/"+name))
-	if !strings.HasPrefix(fullPath, filepath.Clean("uploads")+string(os.PathSeparator)) {
-		http.Error(w, "不正なパスです", http.StatusBadRequest)
+	data, err := storageGet(name)
+	if err != nil {
+		http.Error(w, "ダウンロードに失敗しました: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Disposition", "attachment; filename="+filepath.Base(name))
 	w.Header().Set("Content-Type", "application/zip")
-	http.ServeFile(w, r, fullPath)
+	w.Write(data)
 }
 
 func toHostPath(containerPath string) string {
@@ -455,6 +443,34 @@ func findPyrunner() string {
 	return ""
 }
 
+// unzipBytes はバイト列からzipを展開する（Supabase Storage対応）
+func unzipBytes(data []byte, dest string) error {
+	r, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return err
+	}
+	for _, f := range r.File {
+		fpath := filepath.Join(dest, f.Name)
+		if f.FileInfo().IsDir() {
+			os.MkdirAll(fpath, 0755)
+			continue
+		}
+		os.MkdirAll(filepath.Dir(fpath), 0755)
+		outFile, err := os.Create(fpath)
+		if err != nil {
+			return err
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return err
+		}
+		io.Copy(outFile, rc)
+		outFile.Close()
+		rc.Close()
+	}
+	return nil
+}
+
 func unzip(src, dest string) error {
 	r, err := zip.OpenReader(src)
 	if err != nil {
@@ -496,21 +512,20 @@ func runHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "ファイル名が指定されていません", http.StatusBadRequest)
 		return
 	}
-	zipPath := filepath.Join("uploads", filepath.Clean("/"+name))
-	if !strings.HasPrefix(zipPath, filepath.Clean("uploads")+string(os.PathSeparator)) {
-		http.Error(w, "不正なパスです", http.StatusBadRequest)
+	// Supabase or ローカルからzipを取得
+	zipData, err := storageGet(name)
+	if err != nil {
+		http.Error(w, "zipの取得に失敗しました: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	tmpBase := filepath.Join("uploads", "tmp")
-	os.MkdirAll(tmpBase, 0755)
-	tmpDir, err := os.MkdirTemp(tmpBase, "pylab-*")
+	tmpDir, err := os.MkdirTemp("", "pylab-*")
 	if err != nil {
 		http.Error(w, "一時フォルダの作成に失敗しました", http.StatusInternalServerError)
 		return
 	}
 	defer os.RemoveAll(tmpDir)
 
-	if err := unzip(zipPath, tmpDir); err != nil {
+	if err := unzipBytes(zipData, tmpDir); err != nil {
 		http.Error(w, "zip解凍に失敗しました: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
