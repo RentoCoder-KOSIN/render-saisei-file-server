@@ -7,8 +7,8 @@
   },
   {
     "username": "user",
-    "salt": "e5ad7bf28971a5ac51691ccdc2dcef0f",
-    "hash": "477364496d2ee77b0171c2ebb007850bd0d6f0ce4ad35b5ccc2c698515f46fc7",
+    "salt": "efa4dbdccc6c9530230aafefce8e8191",
+    "hash": "99e8e6b9ffaa546877480be3e19c9fa0f94382e8ce48bcd3b83c3abb5858be70",
     "role": "student"
   }
 ]
